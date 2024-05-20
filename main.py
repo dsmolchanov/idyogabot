@@ -2,7 +2,7 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-import logging 
+import logging
 
 from telegram.ext import (
     Application,
@@ -12,18 +12,24 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
 logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-# Connect to your PostgreSQL database on Supabase
-conn = psycopg2.connect(
-    dbname=os.getenv("DB_NAME"),
-    user=os.getenv("DB_USER"),
-    password=os.getenv("DB_PASS"),
-    host=os.getenv("DB_HOST"),
-    port=os.getenv("DB_PORT"),
-)
+# Function to get a connection
+def get_conn():
+    conn = psycopg2.connect(
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+    )
+    return conn
+
+# Initialize the connection
+conn = get_conn()
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROUP_ID = "-1002044469000"  # The correct group ID you found
@@ -39,10 +45,16 @@ def error_handler(update: Update, context: CallbackContext) -> None:
 
     # Send the error message to the user
     update.message.reply_text("Oops! Something went wrong. Please try again later.")
-# Load environment variables
-load_dotenv()
+
+def check_connection():
+    global conn
+    try:
+        conn.cursor().execute("SELECT 1")
+    except (psycopg2.InterfaceError, psycopg2.OperationalError):
+        conn = get_conn()
 
 def log_event(user_id, group_id, action, message=None):
+    check_connection()
     try:
         with conn.cursor() as cur:
             print(f"Logging event: user_id={user_id}, group_id={group_id}, action={action}, message={message}")
@@ -56,10 +68,9 @@ def log_event(user_id, group_id, action, message=None):
         print("Logging error:", e)
         conn.rollback()
 
-
-
 async def add_user_to_group(update: Update, context: CallbackContext, user_id: str) -> None:
     """Adds a user to the Telegram group and updates the database."""
+    check_connection()
     try:
         telegram_id = update.effective_user.id
         with conn.cursor() as cur:
@@ -120,6 +131,7 @@ async def start(update: Update, context: CallbackContext):
     print(f"Received order_id: {order_id}, telegram_id: {telegram_id}, full_name: {full_name}")
 
     if order_id:
+        check_connection()
         try:
             with conn.cursor() as cur:
                 # Log the SQL query
@@ -164,12 +176,12 @@ async def start(update: Update, context: CallbackContext):
         )
         return EMAIL_INPUT
 
-
 async def process_email(update: Update, context: CallbackContext) -> int:
     """Process the user's email."""
     user = update.effective_user
     email = update.message.text
 
+    check_connection()
     try:
         with conn.cursor() as cur:
             # Check if user exists
@@ -211,7 +223,7 @@ async def process_email(update: Update, context: CallbackContext) -> int:
         )
 
     return ConversationHandler.END
-    
+
 async def get_group_id(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     chat = await context.bot.get_chat(chat_id)
@@ -231,9 +243,6 @@ async def goodbye(update: Update, context: CallbackContext):
         log_event(user_id, group_id, 'left') 
         await context.bot.send_message(chat_id=group_id, text=f"Ну и пока.. {update.message.left_chat_member.full_name}!")
 
-
-
-
 async def handle_message(update: Update, context: CallbackContext):
     print("Received message:", update.message.text)  # Debug print
     try:
@@ -245,7 +254,6 @@ async def handle_message(update: Update, context: CallbackContext):
         print("Logged message event")  # Confirm logging
     except Exception as e:
         print("Error handling message:", str(e))
-
 
 if __name__ == '__main__':
     application = Application.builder().token(TELEGRAM_TOKEN).build()
