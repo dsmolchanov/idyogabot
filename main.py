@@ -39,12 +39,15 @@ EMAIL_INPUT = 0
 
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-def error_handler(update: Update, context: CallbackContext) -> None:
-    """Log the error and send a message to the user."""
+async def error_handler(update: Update, context: CallbackContext) -> None:
+    """Log the error and send a message to the user, if applicable."""
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    if update and update.message:
+        try:
+            await update.message.reply_text("Oops! Something went wrong. Please try again later.")
+        except Exception as e:
+            logger.error(f"Error sending error message: {e}")
 
-    # Send the error message to the user
-    update.message.reply_text("Oops! Something went wrong. Please try again later.")
 
 def check_connection():
     global conn
@@ -244,16 +247,20 @@ async def goodbye(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=group_id, text=f"Ну и пока.. {update.message.left_chat_member.full_name}!")
 
 async def handle_message(update: Update, context: CallbackContext):
-    print("Received message:", update.message.text)  # Debug print
-    try:
-        user_id = update.message.from_user.id
-        group_id = update.effective_chat.id
-        action = "message"
-        message_text = update.message.text
-        log_event(user_id, group_id, action, message_text)
-        print("Logged message event")  # Confirm logging
-    except Exception as e:
-        print("Error handling message:", str(e))
+    if update.message:
+        logger.info(f"Received message: {update.message.text}")  # Debug print
+        try:
+            user_id = update.message.from_user.id
+            group_id = update.effective_chat.id
+            action = "message"
+            message_text = update.message.text
+            log_event(user_id, group_id, action, message_text)
+            logger.info("Logged message event")  # Confirm logging
+        except Exception as e:
+            logger.error(f"Error handling message: {e}")
+    else:
+        logger.warning("Received update without message")
+
 
 if __name__ == '__main__':
     application = Application.builder().token(TELEGRAM_TOKEN).build()
