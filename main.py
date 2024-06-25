@@ -5,26 +5,15 @@ from telegram import Update
 from telegram.ext import Application, CallbackContext, CommandHandler, ConversationHandler, MessageHandler, filters
 import logging
 
+# Import payment handling logic
+from payment import setup_payment_handlers, get_conn, check_user, greet_and_offer_payment
+
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
-
-def get_conn():
-    try:
-        conn = psycopg2.connect(
-            dbname=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASS"),
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT"),
-        )
-        return conn
-    except Exception as e:
-        logger.error(f"Database connection error: {e}")
-        return None
 
 conn = get_conn()
 if conn:
@@ -33,9 +22,6 @@ else:
     logger.error("Failed to establish database connection.")
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROUP_ID = "-1002044469000"  # Your group ID
-
-EMAIL_INPUT = 0
 
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
@@ -141,9 +127,7 @@ async def start(update: Update, context: CallbackContext):
             )
             return ConversationHandler.END
     else:
-        await update.message.reply_text(
-            f"Приветствую, {user.first_name}, мы пока не получили твоего номера заказа. Введи свой email, и мы проверим."
-        )
+        await greet_and_offer_payment(update, context)
         return EMAIL_INPUT
 
 async def process_email(update: Update, context: CallbackContext) -> int:
@@ -227,13 +211,8 @@ async def handle_message(update: Update, context: CallbackContext):
 if __name__ == '__main__':
     application = Application.builder().token(TELEGRAM_TOKEN).build()
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={EMAIL_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_email)]},
-        fallbacks=[],
-    )
+    setup_payment_handlers(application)
 
-    application.add_handler(conv_handler)
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
     application.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, goodbye))
     application.add_handler(MessageHandler(filters.ALL, handle_message))
