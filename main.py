@@ -2,12 +2,9 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, filters
 from fastapi import FastAPI, Request
 import logging
-
-# Import payment handling logic
-from payment import setup_payment_handlers, get_conn, check_user, greet_and_offer_payment, start, button_handler
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -16,13 +13,29 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+DB_NAME = os.getenv("DB_NAME")
+DB_USER = os.getenv("DB_USER")
+DB_PASS = os.getenv("DB_PASS")
+DB_HOST = os.getenv("DB_HOST")
+DB_PORT = os.getenv("DB_PORT")
+
+# Function to get a connection
+def get_conn():
+    conn = psycopg2.connect(
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASS,
+        host=DB_HOST,
+        port=DB_PORT,
+    )
+    return conn
+
 conn = get_conn()
 if conn:
     logger.info("Database connection established successfully.")
 else:
     logger.error("Failed to establish database connection.")
-
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 # Initialize the bot application
 application = Application.builder().token(TELEGRAM_TOKEN).build()
