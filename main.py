@@ -92,10 +92,14 @@ def webhook():
         asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
     return "OK"
 
+async def start_command(update: Update, context: CallbackContext):
+    await greet_and_offer_payment(update, context)
+
 async def setup():
     # Setup handlers
     setup_payment_handlers(application)
-
+    
+    application.add_handler(CommandHandler("start", start_command))
     application.add_handler(MessageHandler(filters.ALL, handle_message))
     application.add_handler(CommandHandler("get_group_id", get_group_id))
     application.add_error_handler(error_handler)
