@@ -26,11 +26,23 @@ def check_user(telegram_id):
         user = cur.fetchone()
     return user
 
+def insert_user(telegram_id, full_name, username):
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO users (telegram_id, full_name, username) VALUES (%s, %s, %s)",
+            (telegram_id, full_name, username)
+        )
+        conn.commit()
+
 async def greet_and_offer_payment(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
+    full_name = f"{update.effective_user.first_name} {update.effective_user.last_name}".strip()
+    username = update.effective_user.username
+
     user = check_user(telegram_id)
 
     if not user:
+        insert_user(telegram_id, full_name, username)
         await update.message.reply_text("Привет, добро пожаловать на курс йоги")
         
         keyboard = [
