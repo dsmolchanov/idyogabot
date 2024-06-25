@@ -230,6 +230,7 @@ if __name__ == '__main__':
     # Flask app for handling webhook
     app = Flask(__name__)
 
+    
     @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
     def webhook():
         update = Update.de_json(request.get_json(force=True), application.bot)
