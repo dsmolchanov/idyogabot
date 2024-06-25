@@ -2,7 +2,8 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler
+from flask import Flask, request
 import logging
 
 # Import payment handling logic
@@ -23,6 +24,7 @@ else:
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
+# Initialize the bot application
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def error_handler(update: Update, context: CallbackContext):
@@ -224,4 +226,14 @@ if __name__ == '__main__':
     application.add_error_handler(error_handler)
 
     logger.info("Starting bot")
-    application.run_polling()
+
+    # Flask app for handling webhook
+    app = Flask(__name__)
+
+    @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
+    def webhook():
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        application.process_update(update)
+        return "OK"
+
+    app.run(host='0.0.0.0', port=8443)
