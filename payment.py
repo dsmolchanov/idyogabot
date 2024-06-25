@@ -1,8 +1,8 @@
+import os
+import psycopg2
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
-import psycopg2
-import os
-from dotenv import load_dotenv
 import logging
 
 # Setup logging
@@ -14,18 +14,23 @@ load_dotenv()
 
 # Database connection
 def get_conn():
-    conn = psycopg2.connect(
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-    )
-    return conn
-
-conn = get_conn()
+    try:
+        conn = psycopg2.connect(
+            dbname=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASS"),
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT"),
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"Error connecting to database: {e}")
+        return None
 
 def check_user(telegram_id):
+    conn = get_conn()
+    if not conn:
+        return None
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT telegram_id FROM users WHERE telegram_id = %s", (telegram_id,))
@@ -34,8 +39,13 @@ def check_user(telegram_id):
     except Exception as e:
         logger.error(f"Error checking user: {e}")
         return None
+    finally:
+        conn.close()
 
 def insert_user(telegram_id, full_name, username):
+    conn = get_conn()
+    if not conn:
+        return
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -47,6 +57,8 @@ def insert_user(telegram_id, full_name, username):
     except Exception as e:
         logger.error(f"Error inserting user: {e}")
         conn.rollback()
+    finally:
+        conn.close()
 
 async def greet_and_offer_payment(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id

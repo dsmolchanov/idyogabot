@@ -2,9 +2,12 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, filters
-from fastapi import FastAPI, Request
+from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters
 import logging
+from flask import Flask, request
+
+# Import payment handling logic
+from payment import setup_payment_handlers, get_conn, check_user, greet_and_offer_payment, start, button_handler
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -13,33 +16,20 @@ logger = logging.getLogger(__name__)
 # Load environment variables
 load_dotenv()
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-DB_NAME = os.getenv("DB_NAME")
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASS")
-DB_HOST = os.getenv("DB_HOST")
-DB_PORT = os.getenv("DB_PORT")
-
-# Function to get a connection
-def get_conn():
-    conn = psycopg2.connect(
-        dbname=DB_NAME,
-        user=DB_USER,
-        password=DB_PASS,
-        host=DB_HOST,
-        port=DB_PORT,
-    )
-    return conn
-
 conn = get_conn()
 if conn:
     logger.info("Database connection established successfully.")
 else:
     logger.error("Failed to establish database connection.")
 
-# Initialize the bot application
-application = Application.builder().token(TELEGRAM_TOKEN).build()
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Add this to your .env file
 
+# Create Flask app
+app = Flask(__name__)
+
+# Create the Application and pass it your bot's token
+application = Application.builder().token(TELEGRAM_TOKEN).build()
 async def error_handler(update: Update, context: CallbackContext):
     logger.error(msg="Exception while handling an update:", exc_info=context.error)
     if update and update.message:
@@ -149,60 +139,13 @@ async def start_command(update: Update, context: CallbackContext):
         logger.error(f"Error in start command: {e}")
         await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
 
-async def process_email(update: Update, context: CallbackContext) -> int:
-    user = update.effective_user
-    email = update.message.text
 
-    check_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT telegram_id FROM users WHERE email = %s", (email,))
-            user_result = cur.fetchone()
-
-            if user_result:
-                telegram_id = user_result[0]
-
-                cur.execute(
-                    """
-                    SELECT s.status 
-                    FROM subscriptions s
-                    JOIN subscription_plans p ON s.plan_id = p.plan_id
-                    WHERE s.telegram_id = %s AND s.status = 'active'
-                    """,
-                    (telegram_id,)
-                )
-                subscription_result = cur.fetchone()
-
-                if subscription_result:
-                    await update.message.reply_text(
-                        f"{user.first_name}, у тебя есть активная подписка!"
-                    )
-                    await add_user_to_group(update, context, telegram_id)
-                else:
-                    await update.message.reply_text(
-                        f"{user.first_name}, у тебя нет активной подписки."
-                    )
-            else:
-                await update.message.reply_text(
-                    f"Пользователь с email {email} не найден."
-                )
-    except Exception as e:
-        logger.error(f"Error processing email: {e}")
-        await update.message.reply_text(
-            "Произошла ошибка при обработке email. Пожалуйста, попробуй позже."
-        )
-
-    return ConversationHandler.END
 
 async def get_group_id(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     await update.message.reply_text(f"The group ID is: {chat_id}")
 
-async def welcome(update: Update, context: CallbackContext):
-    group_id = update.effective_chat.id
-    for member in update.message.new_chat_members:
-        log_event(member.id, group_id, 'joined')
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Мы тебе рады, {member.full_name}!")
+
 
 async def goodbye(update: Update, context: CallbackContext):
     group_id = update.effective_chat.id
@@ -227,9 +170,15 @@ async def handle_message(update: Update, context: CallbackContext):
     else:
         logger.warning("Received update without message")
 
-if __name__ == '__main__':
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
+@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
+async def webhook():
+    if request.method == "POST":
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        await application.process_update(update)
+    return "OK"
 
+if __name__ == '__main__':
+    # Setup handlers
     setup_payment_handlers(application)
 
     application.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome))
@@ -238,17 +187,9 @@ if __name__ == '__main__':
     application.add_handler(CommandHandler("get_group_id", get_group_id))
     application.add_error_handler(error_handler)
 
-    logger.info("Starting bot")
-
-    # FastAPI app for handling webhook
-    app = FastAPI()
-
-    @app.post(f'/{TELEGRAM_TOKEN}')
-    async def webhook(request: Request):
-        data = await request.json()
-        update = Update.de_json(data, application.bot)
-        application.process_update(update)
-        return "OK"
-
-    import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=8000)
+    # Set the webhook
+    application.bot.set_webhook(url=WEBHOOK_URL)
+    
+    # Start the Flask server
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)

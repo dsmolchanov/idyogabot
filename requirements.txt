@@ -1,5 +1,5 @@
-FastAPI==0.70.0
-uvicorn==0.15.0
-python-telegram-bot==13.7
-psycopg2-binary==2.9.1
-python-dotenv==0.19.1
+Flask==2.3.2
+python-telegram-bot==20.3
+psycopg2-binary==2.9.6
+python-dotenv==1.0.0
+requests==2.31.0
