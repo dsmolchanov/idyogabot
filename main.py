@@ -2,7 +2,7 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, ConversationHandler, MessageHandler, CallbackQueryHandler, filters
+from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters
 import logging
 
 # Import payment handling logic

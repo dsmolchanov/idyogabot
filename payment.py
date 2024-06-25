@@ -80,7 +80,10 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
     query = update.callback_query
     await query.answer()
 
+    logger.debug(f"Button pressed with data: {query.data}")
+
     if query.data == 'start':
+        logger.debug("Start button pressed, calling greet_and_offer_payment")
         await greet_and_offer_payment(query, context)
 
 def setup_payment_handlers(application):
