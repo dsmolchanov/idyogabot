@@ -1,8 +1,13 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import CallbackContext, CommandHandler
+from telegram.ext import CallbackContext, CommandHandler, CallbackQueryHandler
 import psycopg2
 import os
 from dotenv import load_dotenv
+import logging
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -21,18 +26,27 @@ def get_conn():
 conn = get_conn()
 
 def check_user(telegram_id):
-    with conn.cursor() as cur:
-        cur.execute("SELECT telegram_id FROM users WHERE telegram_id = %s", (telegram_id,))
-        user = cur.fetchone()
-    return user
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT telegram_id FROM users WHERE telegram_id = %s", (telegram_id,))
+            user = cur.fetchone()
+        return user
+    except Exception as e:
+        logger.error(f"Error checking user: {e}")
+        return None
 
 def insert_user(telegram_id, full_name, username):
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO users (telegram_id, full_name, username) VALUES (%s, %s, %s)",
-            (telegram_id, full_name, username)
-        )
-        conn.commit()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (telegram_id, full_name, username) VALUES (%s, %s, %s)",
+                (telegram_id, full_name, username)
+            )
+            conn.commit()
+            logger.info(f"Inserted user {telegram_id}")
+    except Exception as e:
+        logger.error(f"Error inserting user: {e}")
+        conn.rollback()
 
 async def greet_and_offer_payment(update: Update, context: CallbackContext) -> None:
     telegram_id = update.effective_user.id
@@ -42,6 +56,7 @@ async def greet_and_offer_payment(update: Update, context: CallbackContext) -> N
     user = check_user(telegram_id)
 
     if not user:
+        logger.info(f"New user {telegram_id}. Inserting into database.")
         insert_user(telegram_id, full_name, username)
         await update.message.reply_text("Привет, добро пожаловать на курс йоги")
         
@@ -50,6 +65,24 @@ async def greet_and_offer_payment(update: Update, context: CallbackContext) -> N
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text("Please choose a payment method:", reply_markup=reply_markup)
+    else:
+        logger.info(f"User {telegram_id} already exists in the database.")
+        await update.message.reply_text("Welcome back!")
+
+async def start(update: Update, context: CallbackContext) -> None:
+    keyboard = [
+        [InlineKeyboardButton("Start", callback_data='start')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Press the button below to start:", reply_markup=reply_markup)
+
+async def button_handler(update: Update, context: CallbackContext) -> None:
+    query = update.callback_query
+    await query.answer()
+
+    if query.data == 'start':
+        await greet_and_offer_payment(query, context)
 
 def setup_payment_handlers(application):
-    application.add_handler(CommandHandler("start", greet_and_offer_payment))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(button_handler))

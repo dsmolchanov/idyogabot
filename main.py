@@ -2,11 +2,11 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, ConversationHandler, MessageHandler, filters
+from telegram.ext import Application, CallbackContext, CommandHandler, ConversationHandler, MessageHandler, CallbackQueryHandler, filters
 import logging
 
 # Import payment handling logic
-from payment import setup_payment_handlers, get_conn, check_user, greet_and_offer_payment
+from payment import setup_payment_handlers, get_conn, check_user, greet_and_offer_payment, start, button_handler
 
 # Setup logging
 logging.basicConfig(level=logging.DEBUG)
@@ -90,45 +90,49 @@ async def add_user_to_group(update: Update, context: CallbackContext, telegram_i
             "Произошла ошибка при добавлении в группу. Пожалуйста, попробуй позже."
         )
 
-async def start(update: Update, context: CallbackContext):
-    user = update.effective_user
-    telegram_id = user.id
-    full_name = f"{user.first_name} {user.last_name}".strip()
+async def start_command(update: Update, context: CallbackContext):
+    try:
+        user = update.effective_user
+        telegram_id = user.id
+        full_name = f"{user.first_name} {user.last_name}".strip()
 
-    order_id = context.args[0] if context.args else None
+        order_id = context.args[0] if context.args else None
 
-    if order_id:
-        check_connection()
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT telegram_id FROM payment_transactions WHERE order_id = %s", (order_id,))
-                result = cur.fetchone()
+        if order_id:
+            check_connection()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT telegram_id FROM payment_transactions WHERE order_id = %s", (order_id,))
+                    result = cur.fetchone()
 
-                if result:
-                    telegram_id = result[0]
+                    if result:
+                        telegram_id = result[0]
 
-                    cur.execute("UPDATE users SET full_name = %s WHERE telegram_id = %s", (full_name, telegram_id))
-                    conn.commit()
+                        cur.execute("UPDATE users SET full_name = %s WHERE telegram_id = %s", (full_name, telegram_id))
+                        conn.commit()
 
-                    await update.message.reply_html(
-                        f"Привет, {user.mention_html()}. Добро пожаловать. Твой ID заказа: {order_id}. Твой аккаунт теперь подключен!"
-                    )
-                    await add_user_to_group(update, context, telegram_id)
-                    return ConversationHandler.END
-                else:
-                    await update.message.reply_text(
-                        f"Приветствую, {user.first_name}, мы пока не получили твоего номера заказа. Введи свой email, и мы проверим."
-                    )
-                    return EMAIL_INPUT
-        except Exception as e:
-            logger.error(f"Error updating user table: {e}")
-            await update.message.reply_html(
-                f"Привет {user.mention_html()}! Добро пожаловать! Возникла ошибка при обработке запроса. Пожалуйста, попробуй позже."
-            )
-            return ConversationHandler.END
-    else:
-        await greet_and_offer_payment(update, context)
-        return EMAIL_INPUT
+                        await update.message.reply_html(
+                            f"Привет, {user.mention_html()}. Добро пожаловать. Твой ID заказа: {order_id}. Твой аккаунт теперь подключен!"
+                        )
+                        await add_user_to_group(update, context, telegram_id)
+                        return ConversationHandler.END
+                    else:
+                        await update.message.reply_text(
+                            f"Приветствую, {user.first_name}, мы пока не получили твоего номера заказа. Введи свой email, и мы проверим."
+                        )
+                        return EMAIL_INPUT
+            except Exception as e:
+                logger.error(f"Error updating user table: {e}")
+                await update.message.reply_html(
+                    f"Привет {user.mention_html()}! Добро пожаловать! Возникла ошибка при обработке запроса. Пожалуйста, попробуй позже."
+                )
+                return ConversationHandler.END
+        else:
+            await greet_and_offer_payment(update, context)
+            return EMAIL_INPUT
+    except Exception as e:
+        logger.error(f"Error in start command: {e}")
+        await update.message.reply_text("Произошла ошибка. Пожалуйста, попробуйте позже.")
 
 async def process_email(update: Update, context: CallbackContext) -> int:
     user = update.effective_user
