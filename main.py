@@ -5,6 +5,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, filters
 import logging
 from flask import Flask, request
+import asyncio
 
 # Import payment handling logic
 from payment import setup_payment_handlers, get_conn, greet_and_offer_payment
@@ -24,7 +25,7 @@ else:
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-GROUP_ID = os.getenv("GROUP_ID")  # Make sure this is set in your .env file
+GROUP_ID = os.getenv("GROUP_ID")
 
 # Create Flask app
 app = Flask(__name__)
@@ -86,7 +87,7 @@ async def webhook():
         await application.process_update(update)
     return "OK"
 
-if __name__ == '__main__':
+async def setup():
     # Setup handlers
     setup_payment_handlers(application)
 
@@ -95,7 +96,12 @@ if __name__ == '__main__':
     application.add_error_handler(error_handler)
 
     # Set the webhook
-    application.bot.set_webhook(url=WEBHOOK_URL)
+    await application.bot.set_webhook(url=WEBHOOK_URL)
+    logger.info(f"Webhook set to {WEBHOOK_URL}")
+
+if __name__ == '__main__':
+    # Run the setup function
+    asyncio.run(setup())
     
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
