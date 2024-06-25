@@ -3,8 +3,9 @@ import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CallbackContext, CommandHandler, MessageHandler, filters
-import logging
 from flask import Flask, request
+import logging
+import nest_asyncio
 import asyncio
 
 # Import payment handling logic
@@ -88,7 +89,7 @@ async def handle_message(update: Update, context: CallbackContext):
 def webhook():
     if request.method == "POST":
         update = Update.de_json(request.get_json(force=True), application.bot)
-        asyncio.run(application.process_update(update))
+        asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
     return "OK"
 
 async def setup():
@@ -108,8 +109,12 @@ async def setup():
         logger.error(f"Failed to set webhook to {WEBHOOK_URL}")
 
 if __name__ == '__main__':
+    # Apply nest_asyncio to allow nested event loops
+    nest_asyncio.apply()
+
     # Run the setup function
-    asyncio.run(setup())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(setup())
     
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
