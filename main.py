@@ -2,8 +2,8 @@ import os
 import psycopg2
 from dotenv import load_dotenv
 from telegram import Update
-from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler
-from flask import Flask, request
+from telegram.ext import Application, CallbackContext, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from fastapi import FastAPI, Request
 import logging
 
 # Import payment handling logic
@@ -227,14 +227,15 @@ if __name__ == '__main__':
 
     logger.info("Starting bot")
 
-    # Flask app for handling webhook
-    app = Flask(__name__)
+    # FastAPI app for handling webhook
+    app = FastAPI()
 
-    
-    @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-    def webhook():
-        update = Update.de_json(request.get_json(force=True), application.bot)
+    @app.post(f'/{TELEGRAM_TOKEN}')
+    async def webhook(request: Request):
+        data = await request.json()
+        update = Update.de_json(data, application.bot)
         application.process_update(update)
         return "OK"
 
-    app.run(host='0.0.0.0', port=8443)
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8000)
