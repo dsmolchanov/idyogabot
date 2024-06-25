@@ -27,6 +27,10 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 GROUP_ID = os.getenv("GROUP_ID")
 
+if not WEBHOOK_URL:
+    logger.error("WEBHOOK_URL is not set in the environment variables.")
+    raise ValueError("WEBHOOK_URL must be set")
+
 # Create Flask app
 app = Flask(__name__)
 
@@ -81,10 +85,10 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.warning("Received update without message")
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-async def webhook():
+def webhook():
     if request.method == "POST":
         update = Update.de_json(request.get_json(force=True), application.bot)
-        await application.process_update(update)
+        asyncio.run(application.process_update(update))
     return "OK"
 
 async def setup():
@@ -96,8 +100,12 @@ async def setup():
     application.add_error_handler(error_handler)
 
     # Set the webhook
-    await application.bot.set_webhook(url=WEBHOOK_URL)
-    logger.info(f"Webhook set to {WEBHOOK_URL}")
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    success = await application.bot.set_webhook(url=WEBHOOK_URL)
+    if success:
+        logger.info(f"Webhook successfully set to {WEBHOOK_URL}")
+    else:
+        logger.error(f"Failed to set webhook to {WEBHOOK_URL}")
 
 if __name__ == '__main__':
     # Run the setup function
@@ -105,4 +113,5 @@ if __name__ == '__main__':
     
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
+    logger.info(f"Starting Flask server on port {port}")
     app.run(host='0.0.0.0', port=port)
