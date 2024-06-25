@@ -93,6 +93,7 @@ def webhook():
     return "OK"
 
 async def start_command(update: Update, context: CallbackContext):
+    logger.info("Received /start command")
     await greet_and_offer_payment(update, context)
 
 async def setup():

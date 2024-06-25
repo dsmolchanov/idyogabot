@@ -1,5 +1,8 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import CallbackContext
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_conn():
     import os
@@ -18,6 +21,7 @@ def get_conn():
     return conn
 
 async def greet_and_offer_payment(update: Update, context: CallbackContext):
+    logger.info("greet_and_offer_payment function called")
     user = update.effective_user
 
     # Check if the user is already in the database
