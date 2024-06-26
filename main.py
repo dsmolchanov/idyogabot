@@ -1,13 +1,13 @@
-import os
+import asyncio
 import logging
+import os
 from quart import Quart, request
-from hypercorn.config import Config
+from hypercorn.config import Config as HypercornConfig
 from hypercorn.asyncio import serve
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CallbackQueryHandler
-import asyncio
-import psycopg2
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 from dotenv import load_dotenv
+import psycopg2
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +34,7 @@ def insert_user(user_id: int, username: str):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            logger.info(f"Attempting to insert user {user_id} into database")
             cur.execute(
                 "INSERT INTO users (telegram_id, username) VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING",
                 (user_id, username)
@@ -42,11 +43,27 @@ def insert_user(user_id: int, username: str):
         logger.info(f"User {user_id} inserted or already exists in the database")
     except Exception as e:
         logger.error(f"Error inserting user into database: {e}")
+        logger.exception("Full traceback:")
         conn.rollback()
     finally:
         conn.close()
 
-async def send_greeting(update: Update):
+async def start_command(update: Update, context):
+    user = update.effective_user
+    logger.info(f"Start command received from user {user.id}")
+    
+    keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"Welcome, {user.first_name}! Click the button below to get started.",
+        reply_markup=reply_markup
+    )
+    
+    insert_user(user.id, user.username)
+
+async def handle_button(update: Update, context):
+    logger.info("Hello button clicked")
     query = update.callback_query
     await query.answer()
     
@@ -57,59 +74,54 @@ async def send_greeting(update: Update):
     insert_user(user.id, user.username)
     logger.info(f"Greeted user {user.id} and inserted into database")
 
-async def handle_button(update: Update, context):
-    await send_greeting(update)
+@app.route('/', methods=["POST"])
+async def handle_webhook():
+    try:
+        json_data = await request.get_json()
+        logger.info(f"Handling a webhook: {json_data}")
+        update = Update.de_json(json_data, app.bot)
+        await app.application.process_update(update)
+        return "OK", 200
+    except Exception as e:
+        logger.error(f"Something went wrong while handling a request: {e}")
+        return "Something went wrong", 500
 
-async def setup_application():
-    global application
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(CallbackQueryHandler(handle_button, pattern='^hello$'))
-    await application.initialize()
-    await application.start()
-
-@app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-async def webhook():
-    if request.method == "POST":
-        logger.info("Webhook received a POST request")
-        try:
-            json_data = await request.get_json()
-            update = Update.de_json(json_data, application.bot)
-            logger.info(f"Parsed update: {update}")
-            
-            await application.process_update(update)
-            logger.info("Update processed")
-        except Exception as e:
-            logger.error(f"Error processing update: {e}")
-            logger.exception("Full traceback:")
-    return "OK"
-
-@app.route('/start', methods=['GET'])
-async def start():
-    keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await application.bot.send_message(chat_id='YOUR_CHAT_ID', text="Click the button to get started!", reply_markup=reply_markup)
-    return "Button sent!"
-
-async def main():
-    await setup_application()
+@app.before_serving
+async def startup():
+    app.application = Application.builder().token(TELEGRAM_TOKEN).build()
+    app.application.add_handler(CommandHandler("start", start_command))
+    app.application.add_handler(CallbackQueryHandler(handle_button, pattern='^hello$'))
     
-    config = Config()
-    config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
+    await app.application.initialize()
+    await app.application.start()
+    app.bot = app.application.bot
     
     logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    await application.bot.set_webhook(WEBHOOK_URL)
+    await app.bot.set_webhook(WEBHOOK_URL)
     logger.info("Webhook set")
-    
-    logger.info(f"Starting Hypercorn server on {config.bind}")
-    await serve(app, config)
+
+@app.after_serving
+async def shutdown():
+    await app.application.stop()
+    await app.application.shutdown()
+
+async def main():
+    hypercorn_config = HypercornConfig()
+    hypercorn_config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
+    logger.info(f"Starting the application on {hypercorn_config.bind}")
+    await serve(app, hypercorn_config)
 
 if __name__ == "__main__":
-    # Test database connection
+    # Test database connection and table
     try:
         conn = get_conn()
-        logger.info("Successfully connected to the database")
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users LIMIT 1")
+            result = cur.fetchone()
+            logger.info(f"Successfully queried users table. Sample result: {result}")
         conn.close()
     except Exception as e:
-        logger.error(f"Error connecting to the database: {e}")
+        logger.error(f"Error connecting to the database or querying users table: {e}")
+        logger.exception("Full traceback:")
     
     asyncio.run(main())
