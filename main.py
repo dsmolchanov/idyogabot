@@ -94,12 +94,15 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.warning("Received update without message")
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-async def webhook():
+def webhook():
     if request.method == "POST":
         logger.info("Webhook received a POST request")
         try:
-            update = Update.de_json(await request.get_json(), application.bot)
-            logger.info(f"Received update: {update}")
+            json_data = request.get_json(force=True)
+            logger.info(f"Received JSON data: {json_data}")
+            
+            update = Update.de_json(json_data, application.bot)
+            logger.info(f"Parsed update: {update}")
             
             if update.message:
                 if update.message.text.startswith('/'):
@@ -112,8 +115,10 @@ async def webhook():
                 logger.info("Received other type of update")
             
             logger.info("Starting to process update")
-            await application.process_update(update)
+            application.process_update(update)
             logger.info("Update processed")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON: {e}")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
@@ -163,15 +168,6 @@ async def setup():
 if __name__ == '__main__':
     logger.info("Starting main execution")
     
-    # Apply nest_asyncio to allow nested event loops
-    nest_asyncio.apply()
-    logger.info("nest_asyncio applied")
-
-    # Create the event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    logger.info("Event loop created and set")
-
     # Initialize the Application
     logger.info("Initializing Application")
     application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -179,19 +175,15 @@ if __name__ == '__main__':
 
     # Run the setup function
     logger.info("Running setup function")
-    loop.run_until_complete(setup())
+    setup()
     logger.info("Setup completed")
     
-    # Start the application
-    logger.info("Starting application")
-    loop.create_task(application.start())
-    logger.info("Application started")
+    # Set the webhook
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    application.bot.set_webhook(WEBHOOK_URL)
+    logger.info("Webhook set")
 
-    # Start the Hypercorn server
-    import hypercorn.asyncio
-    from hypercorn.config import Config
-
-    config = Config()
-    config.bind = ["0.0.0.0:6593"]
-    logger.info(f"Starting Hypercorn server on {config.bind}")
-    loop.run_until_complete(hypercorn.asyncio.serve(app, config))
+    # Start the Flask server
+    port = int(os.environ.get('PORT', 5000))
+    logger.info(f"Starting Flask server on port {port}")
+    app.run(host='0.0.0.0', port=port)
