@@ -12,7 +12,11 @@ import asyncio
 from payment import setup_payment_handlers, get_conn, greet_and_offer_payment
 
 # Setup logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
@@ -39,7 +43,8 @@ app = Flask(__name__)
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 
 async def error_handler(update: Update, context: CallbackContext):
-    logger.error(msg="Exception while handling an update:", exc_info=context.error)
+    logger.error(f"Exception while handling an update: {context.error}")
+    logger.error(f"Update that caused the error: {update}")
     if update and update.message:
         try:
             await update.message.reply_text("Oops! Something went wrong. Please try again later.")
@@ -71,6 +76,7 @@ async def get_group_id(update: Update, context: CallbackContext):
     await update.message.reply_text(f"The group ID is: {chat_id}")
 
 async def handle_message(update: Update, context: CallbackContext):
+    logger.info(f"handle_message called with update: {update}")
     if update.message:
         logger.info(f"Received message: {update.message.text}")
         try:
@@ -88,8 +94,14 @@ async def handle_message(update: Update, context: CallbackContext):
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
 def webhook():
     if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
+        logger.info("Webhook received a POST request")
+        try:
+            update = Update.de_json(request.get_json(force=True), application.bot)
+            logger.info(f"Received update: {update}")
+            asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
+            logger.info("Update processed")
+        except Exception as e:
+            logger.error(f"Error processing update: {e}")
     return "OK"
 
 async def start_command(update: Update, context: CallbackContext):
@@ -120,6 +132,9 @@ if __name__ == '__main__':
     # Run the setup function
     loop = asyncio.get_event_loop()
     loop.run_until_complete(setup())
+    
+    # Keep the loop running
+    asyncio.set_event_loop(loop)
     
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
