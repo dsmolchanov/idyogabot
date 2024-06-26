@@ -1,8 +1,6 @@
 import os
 import logging
-from quart import Quart, request
-from hypercorn.config import Config
-from hypercorn.asyncio import serve
+from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackQueryHandler
 import asyncio
@@ -17,7 +15,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-app = Quart(__name__)
+app = Flask(__name__)
 
 # Initialize the database pool
 db_pool = None
@@ -55,15 +53,15 @@ async def setup_application():
     await application.start()
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-async def webhook():
+def webhook():
     if request.method == "POST":
         logger.info("Webhook received a POST request")
         try:
-            json_data = await request.get_json()
+            json_data = request.get_json()
             update = Update.de_json(json_data, application.bot)
             logger.info(f"Parsed update: {update}")
             
-            await application.process_update(update)
+            asyncio.run(application.process_update(update))
             logger.info("Update processed")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
@@ -71,25 +69,19 @@ async def webhook():
     return "OK"
 
 @app.route('/start', methods=['GET'])
-async def start():
+def start():
     keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await application.bot.send_message(chat_id='YOUR_CHAT_ID', text="Click the button to get started!", reply_markup=reply_markup)
+    asyncio.run(application.bot.send_message(chat_id='YOUR_CHAT_ID', text="Click the button to get started!", reply_markup=reply_markup))
     return "Button sent!"
 
-async def main():
-    await init_db()
-    await setup_application()
-    
-    config = Config()
-    config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
+if __name__ == "__main__":
+    asyncio.run(init_db())
+    asyncio.run(setup_application())
     
     logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    await application.bot.set_webhook(WEBHOOK_URL)
+    asyncio.run(application.bot.set_webhook(WEBHOOK_URL))
     logger.info("Webhook set")
     
-    logger.info(f"Starting Hypercorn server on {config.bind}")
-    await serve(app, config)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
