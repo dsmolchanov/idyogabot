@@ -5,3 +5,4 @@ python-dotenv==1.0.0
 requests==2.31.0
 nest_asyncio==1.5.4
 hypercorn==0.17.3
+quart==0.17.0
