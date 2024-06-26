@@ -98,24 +98,50 @@ def webhook():
         try:
             update = Update.de_json(request.get_json(force=True), application.bot)
             logger.info(f"Received update: {update}")
-            asyncio.run_coroutine_threadsafe(application.process_update(update), loop)
-            logger.info("Update processed")
+            
+            # Log the type of update
+            if update.message:
+                if update.message.text.startswith('/'):
+                    logger.info(f"Received command: {update.message.text}")
+                else:
+                    logger.info("Received regular message")
+            elif update.callback_query:
+                logger.info("Received callback query")
+            else:
+                logger.info("Received other type of update")
+            
+            future = asyncio.run_coroutine_threadsafe(
+                application.process_update(update), loop)
+            future.result()  # This will raise any exceptions that occurred
+            logger.info("Update processed successfully")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
     return "OK"
 
 async def start_command(update: Update, context: CallbackContext):
-    logger.info("Received /start command")
-    await greet_and_offer_payment(update, context)
+    logger.info(f"start_command function called for user {update.effective_user.id}")
+    try:
+        await greet_and_offer_payment(update, context)
+        logger.info("greet_and_offer_payment completed successfully")
+    except Exception as e:
+        logger.error(f"Error in start_command: {e}")
 
 async def setup():
+    logger.info("Setting up application...")
     # Setup handlers
     setup_payment_handlers(application)
     
     application.add_handler(CommandHandler("start", start_command))
+    logger.info("Added start command handler")
+    
     application.add_handler(MessageHandler(filters.ALL, handle_message))
+    logger.info("Added message handler")
+    
     application.add_handler(CommandHandler("get_group_id", get_group_id))
+    logger.info("Added get_group_id command handler")
+    
     application.add_error_handler(error_handler)
+    logger.info("Added error handler")
 
     # Set the webhook
     logger.info(f"Setting webhook to: {WEBHOOK_URL}")
@@ -129,12 +155,12 @@ if __name__ == '__main__':
     # Apply nest_asyncio to allow nested event loops
     nest_asyncio.apply()
 
-    # Run the setup function
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(setup())
-    
-    # Keep the loop running
+    # Create the event loop
+    loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
+
+    # Run the setup function
+    loop.run_until_complete(setup())
     
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
