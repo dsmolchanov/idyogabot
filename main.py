@@ -120,9 +120,8 @@ def webhook():
 
 async def start_command(update: Update, context: CallbackContext):
     logger.info(f"start_command function called for user {update.effective_user.id}")
-    logger.info(f"Update object in start_command: {update}")
-    logger.info(f"Context object in start_command: {context}")
     try:
+        logger.info("Attempting to greet and offer payment")
         await greet_and_offer_payment(update, context)
         logger.info("greet_and_offer_payment completed successfully")
     except Exception as e:
