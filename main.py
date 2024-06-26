@@ -168,7 +168,7 @@ async def setup():
     else:
         logger.error(f"Failed to set webhook to {WEBHOOK_URL}")
 
-if __name__ == '__main__':
+async def main():
     logger.info("Starting main execution")
     
     # Initialize the Application
@@ -178,13 +178,21 @@ if __name__ == '__main__':
 
     # Run the setup function
     logger.info("Running setup function")
-    asyncio.run(setup())
+    await setup()
     logger.info("Setup completed")
     
     # Set the webhook
-    asyncio.run(setup_webhook())
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    await application.bot.set_webhook(WEBHOOK_URL)
+    logger.info("Webhook set")
 
-    # Start the Flask server
-    port = int(os.environ.get('PORT', 5000))
-    logger.info(f"Starting Flask server on port {port}")
-    app.run(host='0.0.0.0', port=port)
+    # Configure Hypercorn
+    config = Config()
+    config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
+    
+    # Start the Hypercorn server
+    logger.info(f"Starting Hypercorn server on {config.bind}")
+    await serve(app, config)
+
+if __name__ == '__main__':
+    asyncio.run(main())
