@@ -94,11 +94,11 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.warning("Received update without message")
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-def webhook():
+async def webhook():
     if request.method == "POST":
         logger.info("Webhook received a POST request")
         try:
-            update = Update.de_json(request.get_json(force=True), application.bot)
+            update = Update.de_json(await request.get_json(), application.bot)
             logger.info(f"Received update: {update}")
             
             if update.message:
@@ -112,10 +112,8 @@ def webhook():
                 logger.info("Received other type of update")
             
             logger.info("Starting to process update")
-            future = asyncio.run_coroutine_threadsafe(
-                application.process_update(update), loop)
-            result = future.result()  # This will raise any exceptions that occurred
-            logger.info(f"Update processed. Result: {result}")
+            await application.process_update(update)
+            logger.info("Update processed")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
@@ -174,12 +172,26 @@ if __name__ == '__main__':
     asyncio.set_event_loop(loop)
     logger.info("Event loop created and set")
 
+    # Initialize the Application
+    logger.info("Initializing Application")
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    logger.info("Application initialized")
+
     # Run the setup function
     logger.info("Running setup function")
     loop.run_until_complete(setup())
     logger.info("Setup completed")
     
-    # Start the Flask server
-    port = int(os.environ.get('PORT', 5000))
-    logger.info(f"Starting Flask server on port {port}")
-    app.run(host='0.0.0.0', port=port)
+    # Start the application
+    logger.info("Starting application")
+    loop.create_task(application.start())
+    logger.info("Application started")
+
+    # Start the Hypercorn server
+    import hypercorn.asyncio
+    from hypercorn.config import Config
+
+    config = Config()
+    config.bind = ["0.0.0.0:6593"]
+    logger.info(f"Starting Hypercorn server on {config.bind}")
+    loop.run_until_complete(hypercorn.asyncio.serve(app, config))
