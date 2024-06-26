@@ -120,8 +120,8 @@ def webhook():
                 logger.info("Received other type of update")
             
             logger.info("Starting to process update")
-            application.process_update(update)
-            logger.info("Update processed")
+            application.create_task(application.process_update(update))
+            logger.info("Update processing task created")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
@@ -131,6 +131,7 @@ def webhook():
 async def start_command(update: Update, context: CallbackContext):
     logger.info(f"start_command function called for user {update.effective_user.id}")
     try:
+        logger.info("Attempting to greet and offer payment")
         await greet_and_offer_payment(update, context)
         logger.info("greet_and_offer_payment completed successfully")
     except Exception as e:
