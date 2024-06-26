@@ -44,6 +44,14 @@ logger.info("Initializing Application object")
 application = Application.builder().token(TELEGRAM_TOKEN).build()
 logger.info("Application object initialized")
 
+def aexec(func):
+    def wrapper(update: Update, context: CallbackContext):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(func(update, context))
+        loop.close()
+    return wrapper
+
 async def error_handler(update: Update, context: CallbackContext):
     logger.error(f"Exception while handling an update: {context.error}")
     logger.error(f"Update that caused the error: {update}")
@@ -99,7 +107,7 @@ def webhook():
         logger.info("Webhook received a POST request")
         try:
             update = Update.de_json(request.get_json(force=True), application.bot)
-            logger.info(f"Received update: {update}")
+            logger.info(f"Parsed update: {update}")
             
             if update.message:
                 if update.message.text.startswith('/'):
@@ -112,19 +120,16 @@ def webhook():
                 logger.info("Received other type of update")
             
             logger.info("Starting to process update")
-            future = asyncio.run_coroutine_threadsafe(
-                application.process_update(update), loop)
-            result = future.result()  # This will raise any exceptions that occurred
-            logger.info(f"Update processed. Result: {result}")
+            application.process_update(update)
+            logger.info("Update processed")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
     return "OK"
 
+@aexec
 async def start_command(update: Update, context: CallbackContext):
     logger.info(f"start_command function called for user {update.effective_user.id}")
-    logger.info(f"Update object in start_command: {update}")
-    logger.info(f"Context object in start_command: {context}")
     try:
         await greet_and_offer_payment(update, context)
         logger.info("greet_and_offer_payment completed successfully")
@@ -132,47 +137,42 @@ async def start_command(update: Update, context: CallbackContext):
         logger.error(f"Error in start_command: {e}")
         logger.exception("Full traceback:")
 
-async def setup():
-    logger.info("Setting up application...")
-    
+def setup():
     # Setup handlers
     setup_payment_handlers(application)
     logger.info("Payment handlers set up")
     
-    start_handler = CommandHandler("start", start_command)
-    application.add_handler(start_handler)
+    application.add_handler(CommandHandler("start", start_command))
     logger.info("Added start command handler")
     
-    message_handler = MessageHandler(filters.ALL, handle_message)
-    application.add_handler(message_handler)
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Added message handler")
     
-    group_id_handler = CommandHandler("get_group_id", get_group_id)
-    application.add_handler(group_id_handler)
+    application.add_handler(CommandHandler("get_group_id", get_group_id))
     logger.info("Added get_group_id command handler")
     
     application.add_error_handler(error_handler)
     logger.info("Added error handler")
-
-    # Set the webhook
-    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    success = await application.bot.set_webhook(url=WEBHOOK_URL)
-    if success:
-        logger.info(f"Webhook successfully set to {WEBHOOK_URL}")
-    else:
-        logger.error(f"Failed to set webhook to {WEBHOOK_URL}")
+   
 
 if __name__ == '__main__':
-    # Apply nest_asyncio to allow nested event loops
-    nest_asyncio.apply()
-
-    # Create the event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    logger.info("Starting main execution")
+    
+    # Initialize the Application
+    logger.info("Initializing Application")
+    application = Application.builder().token(TELEGRAM_TOKEN).build()
+    logger.info("Application initialized")
 
     # Run the setup function
-    loop.run_until_complete(setup())
+    logger.info("Running setup function")
+    setup()
+    logger.info("Setup completed")
     
+    # Set the webhook
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    application.bot.set_webhook(WEBHOOK_URL)
+    logger.info("Webhook set")
+
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
     logger.info(f"Starting Flask server on port {port}")
