@@ -60,6 +60,11 @@ def check_connection():
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         conn = get_conn()
 
+async def setup_webhook():
+    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
+    await application.bot.set_webhook(WEBHOOK_URL)
+    logger.info("Webhook set")
+
 def log_event(telegram_user_id, group_id, action, message=None):
     check_connection()
     try:
@@ -94,11 +99,11 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.warning("Received update without message")
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-def webhook():
+async def webhook():
     if request.method == "POST":
         logger.info("Webhook received a POST request")
         try:
-            json_data = request.get_json(force=True)
+            json_data = await request.get_json(force=True)
             logger.info(f"Received JSON data: {json_data}")
             
             update = Update.de_json(json_data, application.bot)
@@ -115,10 +120,8 @@ def webhook():
                 logger.info("Received other type of update")
             
             logger.info("Starting to process update")
-            application.process_update(update)
+            await application.process_update(update)
             logger.info("Update processed")
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse JSON: {e}")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
@@ -175,13 +178,11 @@ if __name__ == '__main__':
 
     # Run the setup function
     logger.info("Running setup function")
-    setup()
+    asyncio.run(setup())
     logger.info("Setup completed")
     
     # Set the webhook
-    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    application.bot.set_webhook(WEBHOOK_URL)
-    logger.info("Webhook set")
+    asyncio.run(setup_webhook())
 
     # Start the Flask server
     port = int(os.environ.get('PORT', 5000))
