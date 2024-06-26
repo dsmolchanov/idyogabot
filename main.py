@@ -60,11 +60,6 @@ def check_connection():
     except (psycopg2.InterfaceError, psycopg2.OperationalError):
         conn = get_conn()
 
-async def setup_webhook():
-    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    await application.bot.set_webhook(WEBHOOK_URL)
-    logger.info("Webhook set")
-
 def log_event(telegram_user_id, group_id, action, message=None):
     check_connection()
     try:
@@ -99,15 +94,12 @@ async def handle_message(update: Update, context: CallbackContext):
         logger.warning("Received update without message")
 
 @app.route(f'/{TELEGRAM_TOKEN}', methods=['POST'])
-async def webhook():
+def webhook():
     if request.method == "POST":
         logger.info("Webhook received a POST request")
         try:
-            json_data = await request.get_json(force=True)
-            logger.info(f"Received JSON data: {json_data}")
-            
-            update = Update.de_json(json_data, application.bot)
-            logger.info(f"Parsed update: {update}")
+            update = Update.de_json(request.get_json(force=True), application.bot)
+            logger.info(f"Received update: {update}")
             
             if update.message:
                 if update.message.text.startswith('/'):
@@ -120,8 +112,10 @@ async def webhook():
                 logger.info("Received other type of update")
             
             logger.info("Starting to process update")
-            await application.process_update(update)
-            logger.info("Update processed")
+            future = asyncio.run_coroutine_threadsafe(
+                application.process_update(update), loop)
+            result = future.result()  # This will raise any exceptions that occurred
+            logger.info(f"Update processed. Result: {result}")
         except Exception as e:
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
@@ -168,31 +162,18 @@ async def setup():
     else:
         logger.error(f"Failed to set webhook to {WEBHOOK_URL}")
 
-async def main():
-    logger.info("Starting main execution")
-    
-    # Initialize the Application
-    logger.info("Initializing Application")
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    logger.info("Application initialized")
+if __name__ == '__main__':
+    # Apply nest_asyncio to allow nested event loops
+    nest_asyncio.apply()
+
+    # Create the event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     # Run the setup function
-    logger.info("Running setup function")
-    await setup()
-    logger.info("Setup completed")
+    loop.run_until_complete(setup())
     
-    # Set the webhook
-    logger.info(f"Setting webhook to: {WEBHOOK_URL}")
-    await application.bot.set_webhook(WEBHOOK_URL)
-    logger.info("Webhook set")
-
-    # Configure Hypercorn
-    config = Config()
-    config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
-    
-    # Start the Hypercorn server
-    logger.info(f"Starting Hypercorn server on {config.bind}")
-    await serve(app, config)
-
-if __name__ == '__main__':
-    asyncio.run(main())
+    # Start the Flask server
+    port = int(os.environ.get('PORT', 5000))
+    logger.info(f"Starting Flask server on port {port}")
+    app.run(host='0.0.0.0', port=port)
