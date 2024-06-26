@@ -6,32 +6,45 @@ from hypercorn.asyncio import serve
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CallbackQueryHandler
 import asyncio
-import asyncpg
+import psycopg2
+from dotenv import load_dotenv
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Load environment variables
+load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-DATABASE_URL = os.getenv("DATABASE_URL")
 
 app = Quart(__name__)
 
-# Initialize the database pool
-db_pool = None
+def get_conn():
+    conn = psycopg2.connect(
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+    )
+    return conn
 
-async def init_db():
-    global db_pool
-    db_pool = await asyncpg.create_pool(DATABASE_URL)
-
-async def insert_user(user_id: int, username: str):
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "INSERT INTO users (telegram_id, username) VALUES ($1, $2) ON CONFLICT (telegram_id) DO NOTHING",
-            user_id, username
-        )
+def insert_user(user_id: int, username: str):
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (telegram_id, username) VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING",
+                (user_id, username)
+            )
+        conn.commit()
+        logger.info(f"User {user_id} inserted or already exists in the database")
+    except Exception as e:
+        logger.error(f"Error inserting user into database: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 async def send_greeting(update: Update):
     query = update.callback_query
@@ -41,7 +54,7 @@ async def send_greeting(update: Update):
     greeting = f"Hello, {user.first_name}! Welcome to the yoga course."
     
     await query.message.reply_text(greeting)
-    await insert_user(user.id, user.username)
+    insert_user(user.id, user.username)
     logger.info(f"Greeted user {user.id} and inserted into database")
 
 async def handle_button(update: Update, context):
@@ -78,7 +91,6 @@ async def start():
     return "Button sent!"
 
 async def main():
-    await init_db()
     await setup_application()
     
     config = Config()
@@ -92,4 +104,12 @@ async def main():
     await serve(app, config)
 
 if __name__ == "__main__":
+    # Test database connection
+    try:
+        conn = get_conn()
+        logger.info("Successfully connected to the database")
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error connecting to the database: {e}")
+    
     asyncio.run(main())
