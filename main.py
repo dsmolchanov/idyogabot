@@ -34,6 +34,7 @@ def insert_user(user_id: int, username: str):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            logger.info(f"Attempting to insert user {user_id} into database")
             cur.execute(
                 "INSERT INTO users (telegram_id, username) VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING",
                 (user_id, username)
@@ -42,9 +43,31 @@ def insert_user(user_id: int, username: str):
         logger.info(f"User {user_id} inserted or already exists in the database")
     except Exception as e:
         logger.error(f"Error inserting user into database: {e}")
+        logger.exception("Full traceback:")
         conn.rollback()
     finally:
         conn.close()
+
+async def start_command(update: Update, context):
+    user = update.effective_user
+    logger.info(f"Start command received from user {user.id}")
+    
+    keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        f"Welcome, {user.first_name}! Click the button below to get started.",
+        reply_markup=reply_markup
+    )
+    
+    insert_user(user.id, user.username)
+
+# In the setup_application function, add this line:
+application.add_handler(CommandHandler("start", start_command))
+
+async def handle_button(update: Update, context):
+    logger.info("Hello button clicked")
+    await send_greeting(update)
 
 async def send_greeting(update: Update):
     query = update.callback_query
@@ -92,6 +115,10 @@ async def start():
 
 async def main():
     await setup_application()
+    
+    # Log the registered handlers
+    for handler in application.handlers[0]:
+        logger.info(f"Registered handler: {handler}")
     
     config = Config()
     config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
