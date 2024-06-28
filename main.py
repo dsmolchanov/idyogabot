@@ -77,7 +77,7 @@ async def send_subscription_plans(update: Update, context: CallbackContext):
             f"Описание: {plan['description']}\n"
             f"Цена: {plan['price']}"
         )
-        keyboard = [[InlineKeyboardButton("Купить", callback_data=f"buy_{plan['id']}")]]
+        keyboard = [[InlineKeyboardButton("Купить", callback_data=f"buy_{plan['plan_id']}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(message, reply_markup=reply_markup)
 
