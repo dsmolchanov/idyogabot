@@ -7,7 +7,8 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, CallbackContext
 import asyncio
 from dotenv import load_dotenv
-from supabase import create_client, Client
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -17,29 +18,58 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 app = Quart(__name__)
 
-# Initialize Supabase client
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+def get_conn():
+    conn = psycopg2.connect(
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASS"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+    )
+    return conn
 
-async def get_subscription_plans():
+
+def insert_user(user_id: int, username: str, first_name: str, last_name: str):
+    conn = get_conn()
     try:
-        response = supabase.table('subscription_plans').select('*').execute()
-        return response.data
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (telegram_id, username, first_name, last_name) VALUES (%s, %s, %s, %s) ON CONFLICT (telegram_id) DO NOTHING",
+                (user_id, username, first_name, last_name)
+            )
+        conn.commit()
+        logger.info(f"User {user_id} inserted or already exists in the database")
+    except Exception as e:
+        logger.error(f"Error inserting user into database: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+def get_subscription_plans():
+    try:
+        conn = get_conn()
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM subscription_plans")
+            plans = cur.fetchall()
+        conn.close()
+        return plans
     except Exception as e:
         logger.error(f"Error fetching subscription plans: {e}")
         return []
 
 async def start_command(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
+    # Insert user into the database
+    insert_user(user.id, user.username, user.first_name, user.last_name)
+    
     await update.message.reply_text(f"Привет, {user.first_name}! Добро пожаловать в наш йога-курс.")
     await send_subscription_plans(update, context)
 
 async def send_subscription_plans(update: Update, context: CallbackContext):
-    plans = await get_subscription_plans()
+    plans = get_subscription_plans()
     for plan in plans:
         message = (
             f"План: {plan['plan_name']}\n"
@@ -109,4 +139,16 @@ async def main():
     await serve(app, config)
 
 if __name__ == "__main__":
+    # Test database connection
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM subscription_plans LIMIT 1")
+            result = cur.fetchone()
+            logger.info(f"Successfully queried subscription_plans table. Sample result: {result}")
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error connecting to the database or querying subscription_plans table: {e}")
+        logger.exception("Full traceback:")
+    
     asyncio.run(main())
