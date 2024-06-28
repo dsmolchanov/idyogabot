@@ -4,7 +4,7 @@ from quart import Quart, request
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, CallbackContext
 import asyncio
 import psycopg2
 from dotenv import load_dotenv
@@ -30,25 +30,23 @@ def get_conn():
     )
     return conn
 
-def insert_user(user_id: int, username: str):
+def insert_user(user_id: int, username: str, first_name: str, last_name: str):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            logger.info(f"Attempting to insert user {user_id} into database")
             cur.execute(
-                "INSERT INTO users (telegram_id, username) VALUES (%s, %s) ON CONFLICT (telegram_id) DO NOTHING",
-                (user_id, username)
+                "INSERT INTO users (telegram_id, username, first_name, last_name) VALUES (%s, %s, %s, %s) ON CONFLICT (telegram_id) DO NOTHING",
+                (user_id, username, first_name, last_name)
             )
         conn.commit()
         logger.info(f"User {user_id} inserted or already exists in the database")
     except Exception as e:
         logger.error(f"Error inserting user into database: {e}")
-        logger.exception("Full traceback:")
         conn.rollback()
     finally:
         conn.close()
 
-async def start_command(update: Update, context):
+async def start_command(update: Update, context: CallbackContext) -> None:
     user = update.effective_user
     logger.info(f"Start command received from user {user.id}")
     
@@ -56,20 +54,16 @@ async def start_command(update: Update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f"Welcome, {user.first_name}! Click the button below to get started.",
+        f'Hello, {user.first_name}! I am your Telegram Bot. Click the button below to get started.',
         reply_markup=reply_markup
     )
     
-    insert_user(user.id, user.username)
+    insert_user(user.id, user.username, user.first_name, user.last_name)
 
-# In the setup_application function, add this line:
-application.add_handler(CommandHandler("start", start_command))
+async def help_command(update: Update, context: CallbackContext) -> None:
+    await update.message.reply_text('You can use /start to begin.')
 
-async def handle_button(update: Update, context):
-    logger.info("Hello button clicked")
-    await send_greeting(update)
-
-async def send_greeting(update: Update):
+async def handle_button(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     
@@ -77,15 +71,14 @@ async def send_greeting(update: Update):
     greeting = f"Hello, {user.first_name}! Welcome to the yoga course."
     
     await query.message.reply_text(greeting)
-    insert_user(user.id, user.username)
+    insert_user(user.id, user.username, user.first_name, user.last_name)
     logger.info(f"Greeted user {user.id} and inserted into database")
-
-async def handle_button(update: Update, context):
-    await send_greeting(update)
 
 async def setup_application():
     global application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CallbackQueryHandler(handle_button, pattern='^hello$'))
     await application.initialize()
     await application.start()
@@ -106,19 +99,8 @@ async def webhook():
             logger.exception("Full traceback:")
     return "OK"
 
-@app.route('/start', methods=['GET'])
-async def start():
-    keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await application.bot.send_message(chat_id='YOUR_CHAT_ID', text="Click the button to get started!", reply_markup=reply_markup)
-    return "Button sent!"
-
 async def main():
     await setup_application()
-    
-    # Log the registered handlers
-    for handler in application.handlers[0]:
-        logger.info(f"Registered handler: {handler}")
     
     config = Config()
     config.bind = [f"0.0.0.0:{os.environ.get('PORT', '8080')}"]
@@ -134,9 +116,14 @@ if __name__ == "__main__":
     # Test database connection
     try:
         conn = get_conn()
-        logger.info("Successfully connected to the database")
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users LIMIT 1")
+            result = cur.fetchone()
+            logger.info(f"Successfully queried users table. Sample result: {result}")
         conn.close()
     except Exception as e:
-        logger.error(f"Error connecting to the database: {e}")
+        logger.error(f"Error connecting to the database or querying users table: {e}")
+        logger.exception("Full traceback:")
     
+    print("Starting the bot...")
     asyncio.run(main())
