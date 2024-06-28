@@ -6,8 +6,8 @@ from hypercorn.asyncio import serve
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, CallbackContext
 import asyncio
-import psycopg2
 from dotenv import load_dotenv
+from supabase import create_client, Client
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -17,88 +17,65 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 app = Quart(__name__)
 
-def get_conn():
-    conn = psycopg2.connect(
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-    )
-    return conn
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def insert_user(user_id: int, username: str, first_name: str, last_name: str):
-    conn = get_conn()
+async def get_subscription_plans():
     try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO users (telegram_id, username, first_name, last_name) VALUES (%s, %s, %s, %s) ON CONFLICT (telegram_id) DO NOTHING",
-                (user_id, username, first_name, last_name)
-            )
-        conn.commit()
-        logger.info(f"User {user_id} inserted or already exists in the database")
+        response = supabase.table('subscription_plans').select('*').execute()
+        return response.data
     except Exception as e:
-        logger.error(f"Error inserting user into database: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
-
-async def send_welcome_message(update: Update, context: CallbackContext):
-    user = update.effective_user
-    keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        f'Hello, {user.first_name}! Welcome to the yoga course. Click the button below to get started.',
-        reply_markup=reply_markup
-    )
+        logger.error(f"Error fetching subscription plans: {e}")
+        return []
 
 async def start_command(update: Update, context: CallbackContext) -> None:
-    await send_welcome_message(update, context)
+    user = update.effective_user
+    await update.message.reply_text(f"Привет, {user.first_name}! Добро пожаловать в наш йога-курс.")
+    await send_subscription_plans(update, context)
 
-async def help_command(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text('You can send any message to begin.')
+async def send_subscription_plans(update: Update, context: CallbackContext):
+    plans = await get_subscription_plans()
+    for plan in plans:
+        message = (
+            f"План: {plan['plan_name']}\n"
+            f"Длительность: {plan['duration']}\n"
+            f"Описание: {plan['description']}\n"
+            f"Цена: {plan['price']}"
+        )
+        keyboard = [[InlineKeyboardButton("Купить", callback_data=f"buy_{plan['id']}")]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text(message, reply_markup=reply_markup)
 
 async def handle_button(update: Update, context: CallbackContext):
     query = update.callback_query
     await query.answer()
     
-    user = query.from_user
-    greeting = f"Hello, {user.first_name}! Welcome to the yoga course."
-    
-    await query.message.reply_text(greeting)
-    insert_user(user.id, user.username, user.first_name, user.last_name)
-    logger.info(f"Greeted user {user.id} and inserted into database")
-
-async def handle_message(update: Update, context: CallbackContext):
-    user = update.effective_user
-    user_id = user.id
-    
-    # Check if the user exists in the database
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users WHERE telegram_id = %s", (user_id,))
-            existing_user = cur.fetchone()
-    finally:
-        conn.close()
-    
-    if not existing_user:
-        # If the user doesn't exist, send the welcome message with the button
-        await send_welcome_message(update, context)
-    else:
-        # If the user exists, you can handle the message differently or ignore it
-        await update.message.reply_text("How can I assist you today?")
+    if query.data.startswith("buy_"):
+        plan_id = query.data.split("_")[1]
+        keyboard = [
+            [InlineKeyboardButton("PayPal", callback_data=f"paypal_{plan_id}")],
+            [InlineKeyboardButton("Credit card", callback_data=f"stripe_{plan_id}")],
+            [InlineKeyboardButton("Российские карты", url="https://payform.ru/iw4eY7T/")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text("Выберите способ оплаты:", reply_markup=reply_markup)
+    elif query.data.startswith("paypal_"):
+        # Implement PayPal payment logic here
+        await query.message.reply_text("PayPal payment option selected. Implement payment logic.")
+    elif query.data.startswith("stripe_"):
+        # Implement Stripe payment logic here
+        await query.message.reply_text("Credit card (Stripe) payment option selected. Implement payment logic.")
 
 async def setup_application():
     global application
     application = Application.builder().token(TELEGRAM_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CallbackQueryHandler(handle_button, pattern='^hello$'))
+    application.add_handler(CallbackQueryHandler(handle_button))
     await application.initialize()
     await application.start()
 
@@ -132,17 +109,4 @@ async def main():
     await serve(app, config)
 
 if __name__ == "__main__":
-    # Test database connection
-    try:
-        conn = get_conn()
-        with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users LIMIT 1")
-            result = cur.fetchone()
-            logger.info(f"Successfully queried users table. Sample result: {result}")
-        conn.close()
-    except Exception as e:
-        logger.error(f"Error connecting to the database or querying users table: {e}")
-        logger.exception("Full traceback:")
-    
-    print("Starting the bot...")
     asyncio.run(main())
