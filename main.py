@@ -3,12 +3,13 @@ import logging
 from quart import Quart, request
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, CallbackContext
 import asyncio
 from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from payment import create_paypal_payment, handle_paypal_payment, setup_payment_handlers
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -77,7 +78,8 @@ async def send_subscription_plans(update: Update, context: CallbackContext):
             f"Описание: {plan['description']}\n"
             f"Цена: {plan['price']}"
         )
-        keyboard = [[InlineKeyboardButton("Купить", callback_data=f"buy_{plan['plan_id']}")]]
+        callback_data = f"buy_{plan['plan_id']}_{plan['price']}"
+        keyboard = [[InlineKeyboardButton("Купить", callback_data=callback_data)]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(message, reply_markup=reply_markup)
 
@@ -86,20 +88,21 @@ async def handle_button(update: Update, context: CallbackContext):
     await query.answer()
     
     if query.data.startswith("buy_"):
-        plan_id = query.data.split("_")[1]
+        _, plan_id, price = query.data.split("_")
         keyboard = [
-            [InlineKeyboardButton("PayPal", callback_data=f"paypal_{plan_id}")],
-            [InlineKeyboardButton("Credit card", callback_data=f"stripe_{plan_id}")],
+            [InlineKeyboardButton("PayPal", callback_data=f"paypal_{plan_id}_{price}")],
+            [InlineKeyboardButton("Credit card", callback_data=f"stripe_{plan_id}_{price}")],
             [InlineKeyboardButton("Российские карты", url="https://payform.ru/iw4eY7T/")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.message.reply_text("Выберите способ оплаты:", reply_markup=reply_markup)
     elif query.data.startswith("paypal_"):
-        # Implement PayPal payment logic here
-        await query.message.reply_text("PayPal payment option selected. Implement payment logic.")
+        _, plan_id, price = query.data.split("_")
+        await handle_paypal_payment(query, plan_id, price)
     elif query.data.startswith("stripe_"):
+        _, plan_id, price = query.data.split("_")
         # Implement Stripe payment logic here
-        await query.message.reply_text("Credit card (Stripe) payment option selected. Implement payment logic.")
+        await query.message.reply_text(f"Credit card (Stripe) payment option selected for plan {plan_id} with price {price}. Implement payment logic.")
 
 async def setup_application():
     global application
@@ -124,6 +127,11 @@ async def webhook():
             logger.error(f"Error processing update: {e}")
             logger.exception("Full traceback:")
     return "OK"
+
+@app.route('/paypal-webhook', methods=['POST'])
+async def paypal_webhook():
+    print("Received webhook call")
+    return '', 200
 
 async def main():
     await setup_application()

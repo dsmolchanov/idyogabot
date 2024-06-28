@@ -1,54 +1,71 @@
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
 from telegram.ext import CallbackContext
 import logging
+from paypalrestsdk import Payment
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-def get_conn():
-    import os
-    import psycopg2
-    from dotenv import load_dotenv
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-    load_dotenv()
+# Configure PayPal
+import paypalrestsdk
 
-    conn = psycopg2.connect(
-        dbname=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASS"),
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT"),
-    )
-    return conn
+paypalrestsdk.configure({
+    "mode": os.getenv("PAYPAL_MODE", "sandbox"),  # sandbox or live
+    "client_id": os.getenv("PAYPAL_CLIENT_ID"),
+    "client_secret": os.getenv("PAYPAL_CLIENT_SECRET")
+})
 
-async def greet_and_offer_payment(update: Update, context: CallbackContext):
-    logger.info(f"greet_and_offer_payment function called for user {update.effective_user.id}")
-    user = update.effective_user
-    telegram_id = user.id
-    
-    try:
-        conn = get_conn()
-        logger.info("Database connection established")
-        
-        with conn.cursor() as cur:
-            cur.execute("SELECT telegram_id FROM users WHERE telegram_id = %s", (telegram_id,))
-            result = cur.fetchone()
-            
-        if not result:
-            logger.info(f"Inserting new user {telegram_id} into database")
-            with conn.cursor() as cur:
-                cur.execute("INSERT INTO users (telegram_id, full_name) VALUES (%s, %s)", (telegram_id, user.full_name))
-            conn.commit()
-        
-        greeting = f"Привет, {user.first_name}! Добро пожаловать на курс йоги."
-        payment_button = InlineKeyboardButton("Russian banks", url="https://payform.ru/iw4eY7T/")
-        keyboard = InlineKeyboardMarkup([[payment_button]])
-        
-        logger.info(f"Sending greeting to user {telegram_id}")
-        await update.message.reply_text(greeting, reply_markup=keyboard)
-        logger.info(f"Greeting sent to user {telegram_id}")
-    except Exception as e:
-        logger.error(f"Error in greet_and_offer_payment: {e}")
-        logger.exception("Full traceback:")
+def create_paypal_payment(plan_id, amount):
+    payment = Payment({
+        "intent": "sale",
+        "payer": {
+            "payment_method": "paypal"
+        },
+        "redirect_urls": {
+            "return_url": f"{WEBHOOK_URL}/paypal_return?plan_id={plan_id}",
+            "cancel_url": f"{WEBHOOK_URL}/paypal_cancel"
+        },
+        "transactions": [{
+            "item_list": {
+                "items": [{
+                    "name": f"Yoga Plan {plan_id}",
+                    "sku": f"PLAN-{plan_id}",
+                    "price": str(amount),
+                    "currency": "USD",
+                    "quantity": 1
+                }]
+            },
+            "amount": {
+                "total": str(amount),
+                "currency": "USD"
+            },
+            "description": f"Yoga Plan {plan_id} Purchase"
+        }]
+    })
+
+    if payment.create():
+        for link in payment.links:
+            if link.method == "REDIRECT":
+                return link.href
+    else:
+        logger.error(f"Error creating PayPal payment: {payment.error}")
+        return None
+
+async def handle_paypal_payment(query: CallbackQuery, plan_id, price):
+    payment_url = create_paypal_payment(plan_id, price)
+    if payment_url:
+        keyboard = [[InlineKeyboardButton("Pay with PayPal", url=payment_url)]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.message.reply_text("Click the button below to proceed with PayPal payment:", reply_markup=reply_markup)
+    else:
+        await query.message.reply_text("Sorry, there was an error creating the PayPal payment. Please try again later.")
 
 def setup_payment_handlers(application):
+    # This function can be used to add any payment-related handlers to the application
+    # For now, it's empty as we're handling payments in the main application flow
     pass
