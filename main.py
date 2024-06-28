@@ -46,22 +46,21 @@ def insert_user(user_id: int, username: str, first_name: str, last_name: str):
     finally:
         conn.close()
 
-async def start_command(update: Update, context: CallbackContext) -> None:
+async def send_welcome_message(update: Update, context: CallbackContext):
     user = update.effective_user
-    logger.info(f"Start command received from user {user.id}")
-    
     keyboard = [[InlineKeyboardButton("Hello", callback_data='hello')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        f'Hello, {user.first_name}! I am your Telegram Bot. Click the button below to get started.',
+        f'Hello, {user.first_name}! Welcome to the yoga course. Click the button below to get started.',
         reply_markup=reply_markup
     )
-    
-    insert_user(user.id, user.username, user.first_name, user.last_name)
+
+async def start_command(update: Update, context: CallbackContext) -> None:
+    await send_welcome_message(update, context)
 
 async def help_command(update: Update, context: CallbackContext) -> None:
-    await update.message.reply_text('You can use /start to begin.')
+    await update.message.reply_text('You can send any message to begin.')
 
 async def handle_button(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -73,6 +72,26 @@ async def handle_button(update: Update, context: CallbackContext):
     await query.message.reply_text(greeting)
     insert_user(user.id, user.username, user.first_name, user.last_name)
     logger.info(f"Greeted user {user.id} and inserted into database")
+
+async def handle_message(update: Update, context: CallbackContext):
+    user = update.effective_user
+    user_id = user.id
+    
+    # Check if the user exists in the database
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users WHERE telegram_id = %s", (user_id,))
+            existing_user = cur.fetchone()
+    finally:
+        conn.close()
+    
+    if not existing_user:
+        # If the user doesn't exist, send the welcome message with the button
+        await send_welcome_message(update, context)
+    else:
+        # If the user exists, you can handle the message differently or ignore it
+        await update.message.reply_text("How can I assist you today?")
 
 async def setup_application():
     global application
