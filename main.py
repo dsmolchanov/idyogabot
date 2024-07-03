@@ -133,6 +133,27 @@ async def paypal_webhook():
     print("Received webhook call")
     return '', 200
 
+@app.route('/paypal_return', methods=['GET'])
+async def paypal_return():
+    plan_id = request.args.get('plan_id')
+    payment_id = request.args.get('paymentId')
+    payer_id = request.args.get('PayerID')
+
+    # Verify the payment with PayPal
+    payment = Payment.find(payment_id)
+    if payment.execute({'payer_id': payer_id}):
+        logger.info(f"Payment completed for plan {plan_id}")
+        # Implement your logic to handle the successful payment, e.g., update the user's subscription
+        return "Payment completed successfully"
+    else:
+        logger.error(f"Error executing payment: {payment.error}")
+        return "Error processing payment"
+    
+@app.route('/paypal_cancel', methods=['GET'])
+async def paypal_cancel():
+    logger.info("User canceled the PayPal payment")
+    return "Payment canceled"
+
 async def main():
     await setup_application()
     
