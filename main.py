@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from payment import create_paypal_payment, handle_paypal_payment, setup_payment_handlers
+from paypalrestsdk import Payment
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
