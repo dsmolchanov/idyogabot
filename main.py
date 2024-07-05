@@ -141,13 +141,20 @@ async def paypal_return():
     payer_id = request.args.get('PayerID')
 
     # Verify the payment with PayPal
-    payment = Payment.find(payment_id)
-    if payment.execute({'payer_id': payer_id}):
-        logger.info(f"Payment completed for plan {plan_id}")
-        # Implement your logic to handle the successful payment, e.g., update the user's subscription
-        return "Payment completed successfully"
-    else:
-        logger.error(f"Error executing payment: {payment.error}")
+    try:
+        payment = Payment.find(payment_id)
+        if payment.state == 'approved':
+            logger.info(f"Payment completed for plan {plan_id}")
+            # Implement your logic to handle the successful payment, e.g., update the user's subscription
+            return "Payment completed successfully"
+        else:
+            logger.error(f"Payment not approved: {payment.state}")
+            return "Error processing payment"
+    except paypalrestsdk.exceptions.ResourceNotFound:
+        logger.info(f"Payment already executed for plan {plan_id}")
+        return "Payment already completed"
+    except Exception as e:
+        logger.error(f"Error executing payment: {e}")
         return "Error processing payment"
     
 @app.route('/paypal_cancel', methods=['GET'])
