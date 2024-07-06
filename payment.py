@@ -9,7 +9,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL_GENERAL")
 
 # Configure PayPal
 import paypalrestsdk
